@@ -1,5 +1,4 @@
 using DZI_gen.Workers;
-using DZI_shared;
 using DZI_shared.Models;
 
 namespace DZI_gen;

@@ -19,11 +19,11 @@ RUN dotnet restore "./DZI-gen/DZI-gen.csproj"
 COPY . .
 WORKDIR "/src/DZI-gen"
 
-# 执行发布 (非 AOT 模式)
-RUN dotnet publish "./DZI-gen.csproj" -c $BUILD_CONFIGURATION -o /app/publish
+# 执行发布 (Native AOT 模式)
+RUN dotnet publish "./DZI-gen.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=true
 
-# 最终运行阶段 (使用标准 aspnet 运行时)
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+# 最终运行阶段 (使用极简 runtime-deps)
+FROM mcr.microsoft.com/dotnet/runtime-deps:10.0 AS final
 WORKDIR /app
 
 # 重要：在最终镜像中安装 libvips 运行时库
@@ -34,4 +34,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 USER $APP_UID
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "DZI-gen.dll"]
+ENTRYPOINT ["./DZI-gen"]

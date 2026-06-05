@@ -48,7 +48,7 @@ public class ApiService : IApiService
                 return null;
             }
 
-            return await response.Content.ReadFromJsonAsync<ImageMetadata>();
+            return await response.Content.ReadFromJsonAsync(ApiJsonContext.Default.ImageMetadata);
         }
         catch (Exception ex)
         {
@@ -61,14 +61,18 @@ public class ApiService : IApiService
     {
         try
         {
-            var request = new
+            var request = new StatusUpdatePayload
             {
                 Status = status,
                 R2TilePrefix = tilePrefix,
                 ErrorMessage = errorMessage
             };
 
-            var response = await _httpClient.PostAsJsonAsync($"api/Internal/image/{imageId}/status", request);
+            var response = await _httpClient.PostAsJsonAsync(
+                $"api/Internal/image/{imageId}/status", 
+                request, 
+                ApiJsonContext.Default.StatusUpdatePayload);
+
             if (!response.IsSuccessStatusCode)
             {
                 _logger.LogError("Failed to update status for image {ImageId}. Status: {StatusCode}", imageId, response.StatusCode);

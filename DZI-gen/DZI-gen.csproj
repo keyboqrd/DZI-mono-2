@@ -5,8 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <InvariantGlobalization>false</InvariantGlobalization>
-    <!-- false for now -->
-    <PublishAot>false</PublishAot>
+    <PublishAot>true</PublishAot>
     <UserSecretsId>dotnet-DZI_gen-b8674da6-122c-426c-888e-2462fb26e55c</UserSecretsId>
     <RootNamespace>DZI_gen</RootNamespace>
     <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
