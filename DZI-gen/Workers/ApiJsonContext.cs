@@ -3,6 +3,7 @@ using DZI_shared.Models;
 
 namespace DZI_gen.Workers;
 
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(ImageMetadata))]
 [JsonSerializable(typeof(ImageStatus))]
 [JsonSerializable(typeof(StatusUpdatePayload))]
