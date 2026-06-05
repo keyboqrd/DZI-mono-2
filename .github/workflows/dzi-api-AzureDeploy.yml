@@ -1,0 +1,31 @@
+name: Build and Deploy DZI-api Job
+
+# When this action will be executed
+on:
+  # Allow manual trigger
+  workflow_dispatch:
+
+jobs:
+  dzi-api-build-and-deploy-azure:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout to the branch
+        uses: actions/checkout@v2
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.DZIAPI_AZURE_CREDENTIALS }}
+
+      - name: Build and push container image to registry
+        uses: azure/container-apps-deploy-action@v2
+        with:
+          appSourcePath: ${{ github.workspace }}
+          dockerfilePath: DZI-api/Dockerfile
+          registryUrl: ghcr.io
+          registryUsername: ${{ secrets.DZIAPI_REGISTRY_USERNAME }}
+          registryPassword: ${{ secrets.DZIAPI_REGISTRY_PASSWORD }}
+          containerAppName: dzi-api
+          resourceGroup: dzi-mono
+          imageToBuild: ghcr.io/keyboqrd/dzi-api:${{ github.sha }}

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DZI Image Viewer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; display: flex; height: 100vh; background: #f0f2f5; }
+        #sidebar { width: 350px; background: white; border-right: 1px solid #ddd; display: flex; flex-direction: column; box-shadow: 2px 0 5px rgba(0,0,0,0.05); z-index: 10; }
+        #viewer-container { flex: 1; position: relative; background: #222; }
+        #openseadragon-viewer { width: 100%; height: 100%; }
+        
+        .p-4 { padding: 20px; }
+        h2 { margin-top: 0; color: #333; font-size: 1.2rem; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #666; font-size: 0.9rem; }
+        input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #0056b3; }
+        
+        #image-list { flex: 1; overflow-y: auto; padding: 10px; }
+        .image-item { 
+            padding: 12px; border: 1px solid #eee; border-radius: 6px; margin-bottom: 10px; cursor: pointer; 
+            transition: all 0.2s; background: #fff;
+        }
+        .image-item:hover { border-color: #007bff; background: #f8f9ff; transform: translateY(-2px); box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .image-item.active { border-color: #007bff; background: #e7f1ff; }
+        .image-id { font-family: monospace; font-size: 0.75rem; color: #888; word-break: break-all; }
+        .image-status { font-size: 0.8rem; font-weight: bold; margin-top: 4px; }
+        .status-3 { color: #28a745; } /* Success */
+        .status-2 { color: #17a2b8; } /* Processing */
+        .status-4 { color: #dc3545; } /* Failed */
+
+        #no-images { text-align: center; color: #888; margin-top: 40px; }
+        .loading-overlay { 
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
+            background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; 
+            color: white; z-index: 100; 
+        }
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div class="p-4">
+            <h2>DZI Viewer</h2>
+            <div class="form-group">
+                <label>API Base URL</label>
+                <input type="text" id="apiUrl" placeholder="http://localhost:5000">
+            </div>
+            <div class="form-group">
+                <label>R2 Public URL (Base)</label>
+                <input type="text" id="r2Url" placeholder="https://pub-xxx.r2.dev">
+            </div>
+            <div class="form-group">
+                <label>RevenueCat App User ID</label>
+                <input type="text" id="appUserId" placeholder="test_user_001">
+            </div>
+            <button id="loadBtn">Load Images</button>
+        </div>
+        
+        <div id="image-list">
+            <div id="no-images">Enter User ID to load images</div>
+        </div>
+    </div>
+
+    <div id="viewer-container">
+        <div id="openseadragon-viewer"></div>
+        <div id="loading" class="loading-overlay">Loading DZI...</div>
+    </div>
+
+    <script>
+        const apiUrlInput = document.getElementById('apiUrl');
+        const r2UrlInput = document.getElementById('r2Url');
+        const appUserIdInput = document.getElementById('appUserId');
+        const loadBtn = document.getElementById('loadBtn');
+        const imageList = document.getElementById('image-list');
+        const loadingOverlay = document.getElementById('loading');
+        
+        let viewer = null;
+
+        async function loadConfig() {
+            try {
+                const response = await fetch('config.json');
+                if (response.ok) {
+                    const config = await response.json();
+                    if (config.apiUrl) apiUrlInput.value = config.apiUrl;
+                    if (config.r2PublicUrl) r2UrlInput.value = config.r2PublicUrl;
+                    if (config.appUserId) appUserIdInput.value = config.appUserId;
+                }
+            } catch (e) {}
+        }
+
+        loadBtn.addEventListener('click', async () => {
+            const apiBase = apiUrlInput.value.trim().replace(/\/$/, '');
+            const appUserId = appUserIdInput.value.trim();
+            
+            if (!appUserId) return alert("Please enter User ID");
+
+            imageList.innerHTML = 'Loading...';
+            
+            try {
+                const url = `${apiBase}${apiBase.toLowerCase().includes('/api') ? '' : '/api'}/Image/user/${encodeURIComponent(appUserId)}`;
+                const response = await fetch(url);
+                
+                if (!response.ok) throw new Error("Failed to load images");
+                
+                const images = await response.json();
+                renderImageList(images);
+            } catch (err) {
+                imageList.innerHTML = `<div style="color: red; padding: 10px;">Error: ${err.message}</div>`;
+            }
+        });
+
+        function renderImageList(images) {
+            if (images.length === 0) {
+                imageList.innerHTML = '<div id="no-images">No images found for this user.</div>';
+                return;
+            }
+
+            imageList.innerHTML = '';
+            images.forEach(img => {
+                const item = document.createElement('div');
+                item.className = `image-item ${img.status === 3 ? 'success' : ''}`;
+                
+                const statusMap = { 0: 'Pending', 1: 'Uploaded', 2: 'Processing', 3: 'Success', 4: 'Failed' };
+                const time = new Date(img.createdAt).toLocaleString();
+
+                item.innerHTML = `
+                    <div class="image-id">ID: ${img.id}</div>
+                    <div class="image-status status-${img.status}">${statusMap[img.status] || 'Unknown'}</div>
+                    <div style="font-size: 0.7rem; color: #666;">${time}</div>
+                `;
+
+                if (img.status === 3) {
+                    item.addEventListener('click', () => openImage(img));
+                } else {
+                    item.style.opacity = '0.6';
+                    item.style.cursor = 'not-allowed';
+                    item.title = "Only successful images can be viewed";
+                }
+                
+                imageList.appendChild(item);
+            });
+        }
+
+        function openImage(img) {
+            // Remove active class from all
+            document.querySelectorAll('.image-item').forEach(i => i.classList.remove('active'));
+            // Find the clicked one (this is tricky with events, let's just find by ID if we wanted, or pass 'this')
+            
+            const r2Base = r2UrlInput.value.trim().replace(/\/$/, '');
+            if (!r2Base) return alert("Please enter R2 Public URL Base");
+
+            // Construct DZI path
+            // Prefix format: tiles/{userId}/{imageId}
+            // Full DZI: base/tiles/{userId}/{imageId}/index.dzi
+            const dziUrl = `${r2Base}/${img.r2TilePrefix}/index.dzi`;
+            
+            console.log("Loading DZI from:", dziUrl);
+            loadingOverlay.style.display = 'flex';
+
+            if (viewer) {
+                viewer.destroy();
+            }
+
+            viewer = OpenSeadragon({
+                id: "openseadragon-viewer",
+                prefixUrl: "https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/",
+                tileSources: dziUrl,
+                showNavigator: true,
+                loadingOff: false
+            });
+
+            viewer.addHandler('open', () => {
+                loadingOverlay.style.display = 'none';
+            });
+
+            viewer.addHandler('open-failed', (e) => {
+                loadingOverlay.style.display = 'none';
+                alert("Failed to load DZI. Make sure R2 Public URL is correct and CORS is enabled on R2.");
+                console.error(e);
+            });
+        }
+
+        loadConfig();
+    </script>
+</body>
+</html>

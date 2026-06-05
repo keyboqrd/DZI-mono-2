@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DZI Image Upload Test Client</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; background: #f4f7f6; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h1 { color: #333; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="file"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        button { background: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        #log { background: #222; color: #0f0; padding: 15px; border-radius: 4px; font-family: monospace; white-space: pre-wrap; height: 300px; overflow-y: auto; }
+        .config-status { font-size: 12px; margin-top: 5px; color: #666; }
+    </style>
+</head>
+<body>
+    <h1>DZI Test Client</h1>
+    
+    <div class="card">
+        <div class="form-group">
+            <label for="apiUrl">API Base URL</label>
+            <input type="text" id="apiUrl" placeholder="http://localhost:5000">
+            <div id="configStatus" class="config-status">Loading config.json...</div>
+        </div>
+        <div class="form-group">
+            <label for="appUserId">RevenueCat App User ID</label>
+            <input type="text" id="appUserId" placeholder="test_user_001">
+        </div>
+        <div class="form-group">
+            <label for="imageFile">Select Image (JPG/PNG/TIFF)</label>
+            <input type="file" id="imageFile" accept="image/*">
+        </div>
+        <button id="uploadBtn">Start Upload Process</button>
+        <button id="checkStatusBtn" style="background: #6c757d; margin-left: 10px;" disabled>Check Status Manually</button>
+    </div>
+
+    <div class="card">
+        <label>Execution Log</label>
+        <div id="log">Waiting for action...</div>
+    </div>
+
+    <script>
+        const apiUrlInput = document.getElementById('apiUrl');
+        const appUserIdInput = document.getElementById('appUserId');
+        const imageFileInput = document.getElementById('imageFile');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const checkStatusBtn = document.getElementById('checkStatusBtn');
+        const logElement = document.getElementById('log');
+        const configStatus = document.getElementById('configStatus');
+
+        let currentImageId = null;
+        let currentApiBase = null;
+
+        // Auto-load config.json
+        async function loadConfig() {
+            try {
+                const response = await fetch('config.json');
+                if (response.ok) {
+                    const config = await response.json();
+                    if (config.apiUrl) apiUrlInput.value = config.apiUrl;
+                    if (config.appUserId) appUserIdInput.value = config.appUserId;
+                    configStatus.innerText = '✅ Config loaded from config.json';
+                    configStatus.style.color = 'green';
+                } else {
+                    configStatus.innerText = 'ℹ️ No config.json found, using defaults.';
+                }
+            } catch (e) {
+                configStatus.innerText = 'ℹ️ No config.json found, using defaults.';
+            }
+        }
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const color = type === 'error' ? '#ff4d4d' : (type === 'success' ? '#00ff00' : '#ffffff');
+            logElement.innerHTML += `<span style="color: ${color}">[${timestamp}] ${message}</span>\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        uploadBtn.addEventListener('click', async () => {
+            let apiBase = apiUrlInput.value.trim().replace(/\/$/, '');
+            const appUserId = appUserIdInput.value.trim();
+            const file = imageFileInput.files[0];
+
+            if (!file) {
+                alert('Please select a file first.');
+                return;
+            }
+
+            // Robust URL construction
+            if (!apiBase.toLocaleLowerCase().includes('/api')) {
+                apiBase += '/api';
+            }
+
+            currentApiBase = apiBase;
+            uploadBtn.disabled = true;
+            checkStatusBtn.disabled = true;
+            logElement.innerHTML = '';
+            log(`Starting process for user: ${appUserId}`);
+
+            try {
+                // Step 1: Request Upload URL
+                const requestUrl = `${apiBase}/Image/request-upload?appUserId=${encodeURIComponent(appUserId)}&fileName=${encodeURIComponent(file.name)}`;
+                log(`Step 1: Requesting upload URL from ${requestUrl}...`);
+                
+                const reqResponse = await fetch(requestUrl, {
+                    method: 'POST'
+                });
+
+                if (!reqResponse.ok) {
+                    throw new Error(`Failed to request upload URL: ${reqResponse.status} ${await reqResponse.text()}`);
+                }
+
+                const uploadData = await reqResponse.json();
+                
+                // ASP.NET Core defaults to camelCase in JSON
+                const imageId = uploadData.imageId || uploadData.ImageId;
+                const uploadUrl = uploadData.uploadUrl || uploadData.UploadUrl;
+
+                if (!uploadUrl) {
+                    console.error("Full response:", uploadData);
+                    throw new Error("API response did not contain an uploadUrl. Check console for full response.");
+                }
+
+                currentImageId = imageId;
+                log(`Received Upload URL. ImageID: ${imageId}`, 'success');
+
+                // Step 2: Upload to R2
+                log(`Step 2: Uploading file directly to Cloudflare R2...`);
+                const uploadResponse = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    body: file,
+                    headers: {
+                        'Content-Type': file.type
+                    }
+                });
+
+                if (!uploadResponse.ok) {
+                    throw new Error(`R2 Upload failed: ${uploadResponse.status} ${await uploadResponse.text()}`);
+                }
+                log(`File uploaded to R2 successfully.`, 'success');
+
+                // Step 3: Complete Upload & Trigger Job
+                log(`Step 3: Notifying API to trigger DZI-gen job...`);
+                const completeResponse = await fetch(`${apiBase}/Image/${imageId}/complete-upload`, {
+                    method: 'POST'
+                });
+
+                if (!completeResponse.ok) {
+                    throw new Error(`Failed to complete upload: ${completeResponse.status} ${await completeResponse.text()}`);
+                }
+
+                const statusData = await completeResponse.json();
+                log(`Job triggered! Current Status: ${statusData.status || statusData.Status}`, 'success');
+                log(`Process started. You can now click "Check Status Manually" to see progress.`);
+                
+                checkStatusBtn.disabled = false;
+                uploadBtn.disabled = false;
+
+            } catch (err) {
+                log(`Error: ${err.message}`, 'error');
+                uploadBtn.disabled = false;
+            }
+        });
+
+        checkStatusBtn.addEventListener('click', async () => {
+            if (!currentImageId || !currentApiBase) return;
+            
+            checkStatusBtn.disabled = true;
+            try {
+                log(`Checking status for ${currentImageId}...`);
+                const res = await fetch(`${currentApiBase}/Image/${currentImageId}`);
+                if (!res.ok) {
+                    log(`Failed to fetch status: ${res.status}`, 'error');
+                    return;
+                }
+                const data = await res.json();
+                
+                const status = data.status !== undefined ? data.status : data.Status;
+                const r2TilePrefix = data.r2TilePrefix || data.R2TilePrefix;
+                const errorMessage = data.errorMessage || data.ErrorMessage;
+
+                const statusMap = {
+                    0: 'PendingUpload',
+                    1: 'Uploaded',
+                    2: 'Processing',
+                    3: 'Success',
+                    4: 'Failed'
+                };
+
+                log(`Current Status: ${status} (${statusMap[status] || 'Unknown'})`);
+
+                if (status === 3 /* Completed */) {
+                    log(`SUCCESS! Image processing finished.`, 'success');
+                    log(`Tiles prefix: ${r2TilePrefix}`, 'success');
+                } else if (status === 4 /* Failed */) {
+                    log(`FAILED: ${errorMessage}`, 'error');
+                }
+            } catch (err) {
+                log(`Status check error: ${err.message}`, 'error');
+            } finally {
+                checkStatusBtn.disabled = false;
+            }
+        });
+
+        // Initialize
+        loadConfig();
+    </script>
+</body>
+</html>

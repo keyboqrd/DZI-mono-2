@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="DZI-api/DZI-api.csproj" />
+  <Project Path="DZI-gen/DZI-gen.csproj" />
+  <Project Path="DZI-shared/DZI-shared.csproj" />
+</Solution>

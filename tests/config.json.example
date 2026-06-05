@@ -1,0 +1,6 @@
+{
+    "apiUrl": "http://localhost:5000",
+    "appUserId": "test_user_001",
+    "r2PublicUrl": "https://pub-your-id.r2.dev",
+    "note": "Copy this file to config.json and it will be ignored by git. Change apiUrl to your Azure URL for cloud testing."
+}
